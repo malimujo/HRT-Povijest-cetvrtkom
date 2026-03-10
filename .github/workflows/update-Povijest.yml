@@ -1,0 +1,51 @@
+name: Ažuriraj Povijest četvrtkom M3U
+on:
+  schedule:
+    # 🕐 ČETVRTCI 17:00-23:30 svakih 30 min (CET = UTC+1)
+    # UTC: 16:00, 16:30, 17:00... 22:30 → CET: 17:00-23:30
+    - cron: '0,30 16-22 * * 4'  # 4 = četvrtak
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+    
+    # PUPPETEER SPECIFIČNI SETUP
+    - name: Instaliraj Chrome i Puppeteer
+      run: |
+        npm init -y
+        npm install puppeteer
+        npx puppeteer browsers install chrome
+    
+    - name: Debug - Provjeri vrijeme
+      run: |
+        echo "Trenutno UTC: $(date -u)"
+        echo "Trenutno CET: $(date)"
+        echo "Dan tjedna (4=četvrtak): $(date +%w)"
+    
+    - name: Generiraj Povijest M3U
+      run: node povijest.js  # ← promijenjeno
+    
+    - name: Provjeri M3U datoteku
+      run: |
+        ls -la *.m3u || echo "❌ Nema M3U!"
+        test -f povijest-cetvrtkom.m3u && echo "✅ povijest-cetvrtkom.m3u OK!" || exit 1
+        cat povijest-cetvrtkom.m3u
+    
+    - name: Commit i push
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_message: "Povijest četvrtkom: ${{ github.run_id }}"
+        file_pattern: povijest-cetvrtkom.m3u  # ← promijenjeno
