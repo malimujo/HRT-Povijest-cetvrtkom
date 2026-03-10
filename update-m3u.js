@@ -21,87 +21,82 @@ waitUntil: 'networkidle2'
 
 await new Promise(r => setTimeout(r, 4000));
 
-// 🔍 NAZIV EPIZODE + MP3
+// 🎯 JSON izvlačenje + MP3
 const result = await page.evaluate(() => {
-const allLinks = Array.from(document.querySelectorAll('a[href], script, img'));
-
-// 🎵 MP3 link
-for (const link of allLinks) {
-const href = link.href || link.src || link.getAttribute('data-src');
-if (href && href.includes('api.hrt.hr/media') && href.includes('.mp3')) {
-return { mp3: href, image: null };
-}
-}
-
-// 🖼️ Slika
-let imageUrl = null;
-for (const img of allLinks) {
-const src = img.src || img.getAttribute('data-src');
-if (src && src.includes('api.hrt.hr/media') && (src.includes('.webp') || src.includes('.jpg'))) {
-imageUrl = src;
-break;
-}
-}
-
-// 🎵 FIXIRANI REGEX u scriptovima
-const scripts = Array.from(document.querySelectorAll('script'));
-for (const script of scripts) {
-const content = script.textContent || script.innerHTML;
-const mp3Match1 = content.match(/"https?:\/\/api\.hrt\.hr\/media[^"]*\.mp3[^"]*"/);
-const mp3Match2 = content.match(/'https?:\/\/api\.hrt\.hr\/media[^']*\.mp3[^']*'/);
-if (mp3Match1) return { mp3: mp3Match1[0].slice(1, -1), image: imageUrl };
-if (mp3Match2) return { mp3: mp3Match2[0].slice(1, -1), image: imageUrl };
-}
-
-return { mp3: null, image: null };
-});
-
-// 🎯 NAZIV EPIZODE IZ META TAGOVA ili H1/H2
-const episodeTitle = await page.evaluate(() => {
-  // Pokušaj 1: Meta title
-  let title = document.querySelector('h1, h2, .episode-title, [class*="title"], [class*="naslov"]');
-  if (title && title.textContent.trim()) {
-    return title.textContent.trim().substring(0, 80); // Max 80 chars
+  // 1. NAZIV IZ JSON-a: lastAvailableEpisode.caption
+  let episodeTitle = null;
+  const scripts = Array.from(document.querySelectorAll('script'));
+  for (const script of scripts) {
+    const content = script.textContent || script.innerHTML;
+    // ✅ JSON regex za caption
+    const jsonMatch = content.match(/lastAvailableEpisode[^}]*"caption"\s*:\s*"([^"]+)"/);
+    if (jsonMatch) {
+      episodeTitle = jsonMatch[1];
+      break;
+    }
   }
-  
-  // Pokušaj 2: Page title bez "Povijest četvrtkom"
-  let pageTitle = document.title.replace(/Povijest četvrtkom/gi, '').trim();
-  if (pageTitle && pageTitle.length > 10) {
-    return pageTitle.substring(0, 80);
+
+  const allLinks = Array.from(document.querySelectorAll('a[href], script, img'));
+
+  // 2. MP3 link
+  for (const link of allLinks) {
+    const href = link.href || link.src || link.getAttribute('data-src');
+    if (href && href.includes('api.hrt.hr/media') && href.includes('.mp3')) {
+      return { mp3: href, image: null, title: episodeTitle };
+    }
   }
-  
-  return 'Najnovija epizoda';
+
+  // 3. Slika
+  let imageUrl = null;
+  for (const img of allLinks) {
+    const src = img.src || img.getAttribute('data-src');
+    if (src && src.includes('api.hrt.hr/media') && (src.includes('.webp') || src.includes('.jpg'))) {
+      imageUrl = src;
+      break;
+    }
+  }
+
+  // 4. REGEX u scriptovima za MP3
+  for (const script of scripts) {
+    const content = script.textContent || script.innerHTML;
+    const mp3Match1 = content.match(/"https?:\/\/api\.hrt\.hr\/media[^"]*\.mp3[^"]*"/);
+    const mp3Match2 = content.match(/'https?:\/\/api\.hrt\.hr\/media[^']*\.mp3[^']*'/);
+    if (mp3Match1) return { mp3: mp3Match1[0].slice(1, -1), image: imageUrl, title: episodeTitle };
+    if (mp3Match2) return { mp3: mp3Match2[0].slice(1, -1), image: imageUrl, title: episodeTitle };
+  }
+
+  return { mp3: null, image: null, title: 'Najnovija' };
 });
 
 console.log('🎵 MP3:', result.mp3);
 console.log('🖼️ Slika:', result.image);
-console.log('📺 Naziv epizode:', episodeTitle);
+console.log('📺 NAZIV JSON:', result.title);
 
 if (result.mp3) {
-const timeMatch = result.mp3.match(/(\d{4})(\d{2})(\d{2})(\d{6})\.mp3$/);
-let emisijaInfo = episodeTitle;
+  const timeMatch = result.mp3.match(/(\d{4})(\d{2})(\d{2})(\d{6})\.mp3$/);
+  let emisijaInfo = result.title || 'Najnovija';
 
-if (timeMatch) {
-const godina = timeMatch[1];
-const mjesec = timeMatch[2];
-const dan = timeMatch[3];
-const vrijeme = timeMatch[4];
-const sat = vrijeme.slice(0,2);
-const minute = vrijeme.slice(2,4);
-emisijaInfo = `${episodeTitle} ${dan}.${mjesec}. ${sat}:${minute}`;
-}
+  if (timeMatch) {
+    const godina = timeMatch[1];
+    const mjesec = timeMatch[2];
+    const dan = timeMatch[3];
+    const vrijeme = timeMatch[4];
+    const sat = vrijeme.slice(0,2);
+    const minute = vrijeme.slice(2,4);
+    emisijaInfo = `${result.title} ${dan}.${mjesec}. ${sat}:${minute}`;
+  }
 
-console.log('📅 Konačni naziv:', emisijaInfo);
+  console.log('📅 Konačni naziv:', emisijaInfo);
 
-const imageUrl = result.image || 'https://radio.hrt.hr/favicon.ico';
-const m3uContent = `#EXTM3U
-#EXTINF:-1 tvg-logo="${imageUrl}" group-title="Povijest",HRT Povijest četvrtkom - ${emisijaInfo}
+  const imageUrl = result.image || 'https://radio.hrt.hr/favicon.ico';
+  const m3uContent = `#EXTM3U
+#EXTINF:-1 tvg-logo="${imageUrl}" group-title="Povijest",${emisijaInfo}
 ${result.mp3}`;
 
-fs.writeFileSync('povijest-cetvrtkom.m3u', m3uContent);
-console.log('✅ M3U spreman s pravim nazivom epizode!');
+  fs.writeFileSync('povijest-cetvrtkom.m3u', m3uContent);
+  console.log('✅ M3U spreman s JSON nazivom!');
 } else {
-throw new Error('Nema MP3-a');
+  throw new Error('Nema MP3-a');
 }
 
 } catch (error) {
@@ -113,7 +108,7 @@ fs.writeFileSync('povijest-cetvrtkom.m3u', fallbackContent);
 console.log('✅ Fallback M3U spreman');
 } finally {
 if (browser) {
-await browser.close();
+  await browser.close();
 }
 }
 }
