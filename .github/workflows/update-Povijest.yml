@@ -34,7 +34,7 @@ jobs:
         echo "Dan (4=četvrtak): $(date +%w)"
     
     - name: Generiraj Povijest M3U
-      run: node povijest.js
+      run: node povijest-cetvrtkom.js
     
     - name: Provjeri M3U
       run: |
